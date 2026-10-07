@@ -65,6 +65,11 @@ int main(void)
     access_control_destroy(control);
     unlink(path);
     control = access_control_create(1);
+check(control != NULL &&
+      access_control_load_file(control, path) == -1,
+      "missing config file returns error");
+access_control_destroy(control);
+    control = access_control_create(1);
     strcpy(request.host, "unknown.test");
     check(access_control_check(control, &request) == ACCESS_ALLOW,
           "default-allow policy allows unknown hostname");
