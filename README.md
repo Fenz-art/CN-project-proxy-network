@@ -4,17 +4,20 @@
 
 ## Implemented Baseline
 
-The current implementation is a concurrent HTTP forward proxy built from the
-existing flat source layout. Build it with `make`; run `build/proxy --help` for
-options. The proxy accepts HTTP/1.0 and HTTP/1.1 `GET` requests in absolute-form
-or origin-form, converts requests to origin-form, applies hostname policy, then
-checks the response cache before contacting the origin. Request headers are
-bounded to 8 KiB and workers are capped at 64. The listener binds to IPv4
-loopback by default. Client headers have a 5-second total deadline; origin
-response forwarding has an 8-second total deadline; each also has an inactivity
-socket timeout. Client and origin writes have bounded 5-second deadlines.
-Origin TCP connect defaults to 5 seconds. Name resolution still uses the system
-resolver and is not independently timed.
+This project implements a bounded educational HTTP forward proxy supporting
+HTTP/1.0 and HTTP/1.1 GET traffic. HTTPS CONNECT tunneling, IPv6 authority
+literals, request bodies, and non-GET methods are outside the implemented
+scope.
+
+Build it with `make`; run `build/proxy --help` for options. The proxy accepts
+absolute-form or origin-form requests, converts them to origin-form, applies
+hostname policy, then checks the response cache before contacting the origin.
+Request headers are bounded to 8 KiB and workers are capped at 64. The listener
+binds to IPv4 loopback by default. Client headers have a 5-second total
+deadline; origin response forwarding has an 8-second total deadline; each also
+has an inactivity socket timeout. Client and origin writes have bounded
+5-second deadlines. Origin TCP connect defaults to 5 seconds. Name resolution
+still uses the system resolver and is not independently timed.
 
 The cache uses a lowercased `host:port/path?query` key, a 30-second default TTL,
 32 entries, and a 1 MiB maximum response by default. It stores successful GET
@@ -29,45 +32,35 @@ the default is allow for unlisted hosts. The sample policy blocks
 `blocked.test`. HTTPS tunneling, IPv6 authorities, request bodies, and methods
 other than GET are unsupported.
 
-The proxy is a lab implementation without client authentication. Its default
-loopback binding avoids LAN/public exposure. Do not change the bind address or
-expose it outside a controlled network without adding appropriate client access
-controls.
+This is a lab HTTP proxy without client authentication, not a general-purpose
+browser/Internet proxy. Its default loopback binding avoids LAN/public
+exposure. Do not change the bind address or expose it outside a controlled
+network without adding appropriate client access controls.
 
 Run all unit, legacy regression, and local end-to-end tests with `make test`.
-The concise final project report is in [REPORT.md](REPORT.md).
+See [REPORT.md](REPORT.md) for the design and evaluation summary and
+[DEMO_CHECKLIST.md](DEMO_CHECKLIST.md) for reproducible demonstration steps.
 The test suite launches the real proxy and local origin, verifies cache hits and
 access blocks through origin counters, and exercises concurrency through the
 validated local regression set. It also runs direct and real-proxy benchmark
 repetitions at 1, 5, 10, 25, and 50 clients against the same local origin,
 with proxy caching disabled for the comparison. Results are printed by the
-integration suite and are environment-specific; no fixed performance claim is
-made beyond the observed localhost measurements above.
+integration suite and are environment-dependent localhost measurements.
 
-## FINAL VALIDATION
+## Latest Validation
 
-The feature-frozen implementation was validated with:
+The required clean build and regression run completed on 8 October 2026:
 
 ```bash
-make clean && make && make test
+make clean
+make
+make test
 ```
 
-Observed result from the repository's real regression run:
-
-```text
-Failures: 0
-Integration failures: 0
-```
-
-Additional hardening validation was also executed against the running proxy:
-
-- slow/partial client headers were rejected and followed by a valid request
-- the proxy recovered after a timed-out request path
-- a 250-client burst completed with `CONCURRENCY_COUNT=250` and `ERR_COUNT=0`
-- the HTTP parser and cache/ACL regressions were verified under the real local origin
-- timeout and worker-capacity behavior remained stable under repeated use
-
-This is a validated service-level recovery check, not a claim that 250 clients were concurrently active workers. The proxy is capped at 64 workers and rejects excess traffic with HTTP 503.
+Build completed without compiler warnings. The test run reported
+`Integration failures: 0` and `Failures: 0`. GCC 16.2.1's `-fanalyzer`
+completed over all production C sources without diagnostics. Clang,
+Cppcheck, and Valgrind were unavailable in the validation environment.
 
 > The following sections retain the team's original structure, updated to
 > describe the implemented system. The implementation scope and limitations at
@@ -76,7 +69,6 @@ This is a validated service-level recovery check, not a claim that 250 clients w
 > **Course:** Computer Networks
 > **Project Type:** Mini Project
 > **Team Size:** 4 Members
-> **Final Submission Deadline:** 11 October 2026
 
 ---
 
@@ -89,7 +81,7 @@ This is a validated service-level recovery check, not a claim that 250 clients w
 | 3 | **Ahona Misra**   | `24051078`  | Access Control, Configuration & Error Handling     |
 | 4 | **Aastha Ray**    | `24051975`  | Logging, Testing, Metrics & Performance Evaluation |
 
-> Team members participated in integration, debugging, documentation, testing, and demonstration preparation. Each member is expected to understand the complete system and its design decisions.
+> Team members participated in integration, debugging, documentation, testing, and demonstration preparation. The team is prepared to explain the complete system and its design decisions.
 
 ---
 
@@ -513,19 +505,26 @@ Client ─────► Proxy ─────► Server
 The evaluation records direct and proxied latency, successful-request throughput,
 and behavior at several concurrency levels. Cache behavior is validated separately.
 
-The latest recorded run used three repetitions at each concurrency level:
+The latest `make test` run used three repetitions at each concurrency level.
+The table reports the arithmetic means printed by the integration benchmark:
 
 | Clients | Direct latency | Real proxy latency | Observed overhead | Direct req/s | Proxy req/s |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 0.303 ms | 0.460 ms | 51.65% | 2,502.2 | 1,584.9 |
-| 5 | 0.250 ms | 0.573 ms | 129.33% | 10,617.1 | 7,332.6 |
-| 10 | 0.200 ms | 0.457 ms | 128.33% | 20,307.5 | 12,073.0 |
-| 25 | 0.297 ms | 0.507 ms | 70.79% | 20,879.0 | 18,346.4 |
-| 50 | 0.160 ms | 0.480 ms | 200.00% | 31,294.4 | 22,415.1 |
+| 1 | 0.590 ms | 1.120 ms | 89.83% | 1,316.3 | 790.9 |
+| 5 | 0.297 ms | 0.437 ms | 47.19% | 11,642.7 | 7,546.2 |
+| 10 | 0.177 ms | 0.357 ms | 101.89% | 21,913.7 | 15,413.7 |
+| 25 | 0.183 ms | 0.483 ms | 163.64% | 30,021.4 | 20,086.5 |
+| 50 | 0.253 ms | 14.227 ms | 5,515.79% | 26,479.5 | 11,950.1 |
 
 The direct path is client-to-local-origin; the proxy path is client-to-running-proxy-to-the-same-local-origin. Both use the same request path and response, with caching disabled for comparison. The benchmark counts successful responses after validating HTTP status and framing; separate integration tests verify deterministic and large response bodies byte-for-byte.
 
-These are short localhost microbenchmarks. Scheduler activity, machine load, and run-to-run variation can materially affect the very small absolute latencies. They describe this test environment and are not statistically rigorous or generalizable to Internet-scale proxy performance. This comparison does not measure cache-hit speedups; cache-hit behavior is tested separately through origin counters.
+These are short localhost microbenchmarks, not generalizable Internet
+performance results. The 50-client proxied latency in this run was a marked
+outlier relative to lower-load measurements and should be treated as evidence of
+measurement variability, not as a stable performance estimate. Scheduler
+activity, machine load, and run-to-run variation can materially affect these
+small absolute latencies. This comparison does not measure cache-hit speedups;
+cache-hit behavior is tested separately through origin counters.
 
 The project specification requires latency/throughput measurements with and without the proxy; the table above records the local direct-versus-real-proxy comparison.
 
@@ -719,7 +718,9 @@ Responsibilities:
 
 ### Shared Responsibilities
 
-Although each member has a primary area of responsibility, all members participated in:
+The table below records each member's reported primary responsibility; it is
+not an assertion of exclusive ownership or an independently measured
+contribution split. All members participated in:
 
 * System integration
 * Debugging
@@ -729,7 +730,8 @@ Although each member has a primary area of responsibility, all members participa
 * Final demonstration
 * Understanding the complete architecture
 
-Each member is expected to understand and explain their own implementation as well as the overall system flow.
+The team should be prepared to explain both its individual responsibilities
+and the overall system flow.
 
 ---
 
@@ -869,6 +871,4 @@ The integrated system applies Computer Networks concepts and measures practical 
 **Project:** Project 1 — Designing a Proxy Server
 **Course:** Computer Networks
 **Team Size:** 4
-**Final Submission:** 9 October 2026
-
 ---
